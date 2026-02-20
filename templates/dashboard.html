@@ -27,6 +27,7 @@
         {% set p = s.profile %}
         <div class="match-card">
           <div class="match-head">
+
             <div class="avatar">
               {% if p.image_filename and s.can_view %}
                 <img src="{{ url_for('static', filename='uploads/' + p.image_filename) }}" alt="Profile" />
@@ -34,9 +35,13 @@
                 <div class="avatar-placeholder">{{ p.full_name[:1] }}</div>
               {% endif %}
             </div>
+
             <div class="meta">
               <div class="name">{{ p.full_name }}</div>
-              <div class="muted">{{ p.age }} · {{ p.location }} · {{ p.highest_education }}</div>
+              <div class="muted">
+                {{ p.age }} · {{ p.location }} · {{ p.highest_education }}
+              </div>
+
               <div style="margin-top: 6px;">
                 {% if p.is_verified %}
                   <span class="badge verified">Verified</span>
@@ -47,8 +52,11 @@
                 {% endif %}
               </div>
             </div>
+
             <div class="score">
-              <div class="pill {{ 'good' if s.score >= 90 else 'warn' }}">{{ s.score }}%</div>
+              <div class="pill {{ 'good' if s.score >= 90 else 'warn' }}">
+                {{ s.score }}%
+              </div>
             </div>
           </div>
 
@@ -63,25 +71,47 @@
           <div class="actions">
             {% if s.can_view %}
               <div class="row" style="gap:10px; align-items:center; flex-wrap:wrap;">
-                <a class="btn primary" href="{{ url_for('profile.view_profile', profile_id=p.id) }}">View profile</a>
+
+                <!-- ✅ FIXED HERE -->
+                <a class="btn primary"
+                   href="{{ url_for('profile.view_profile', profile_id=p['id']) }}">
+                   View profile
+                </a>
 
                 {% if s.messaging_unlocked %}
-                  <a class="btn" href="{{ url_for('messages.view_messages', user_id=p.user_id) }}">Message</a>
+                  <a class="btn"
+                     href="{{ url_for('messages.view_messages', user_id=p['user_id']) }}">
+                     Message
+                  </a>
+
                 {% elif s.interest_status == 'pending' and s.interest_direction == 'incoming' %}
-                  <form method="post" action="{{ url_for('interest.respond_interest', interest_id=s.interest_id, action='accepted') }}">
+                  <form method="post"
+                        action="{{ url_for('interest.respond_interest',
+                                           interest_id=s.interest_id,
+                                           action='accepted') }}">
                     <button class="btn primary" type="submit">Accept interest</button>
                   </form>
-                  <form method="post" action="{{ url_for('interest.respond_interest', interest_id=s.interest_id, action='rejected') }}">
+
+                  <form method="post"
+                        action="{{ url_for('interest.respond_interest',
+                                           interest_id=s.interest_id,
+                                           action='rejected') }}">
                     <button class="btn" type="submit">Reject</button>
                   </form>
+
                 {% elif s.interest_status == 'pending' and s.interest_direction == 'outgoing' %}
                   <span class="muted">Interest pending</span>
+
                 {% elif s.interest_status == 'rejected' %}
                   <span class="muted">Rejected</span>
+
                 {% elif not s.interest_status %}
-                  <form method="post" action="{{ url_for('interest.send_interest', user_id=p.user_id) }}">
+                  <form method="post"
+                        action="{{ url_for('interest.send_interest',
+                                           user_id=p['user_id']) }}">
                     <button class="btn" type="submit">Send interest</button>
                   </form>
+
                 {% else %}
                   <span class="muted">Interest: {{ s.interest_status }}</span>
                 {% endif %}
@@ -90,6 +120,7 @@
               <span class="muted">Match score too low to view profile</span>
             {% endif %}
           </div>
+
         </div>
       {% endfor %}
     </div>

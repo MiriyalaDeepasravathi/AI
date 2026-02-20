@@ -117,7 +117,26 @@ def save_profile():
 
 
 # ---------------------------------------------------
-# ✅ NEW API ROUTE FOR ANDROID APP IMAGE UPLOAD
+# ✅ VIEW PROFILE ROUTE (THIS WAS MISSING)
+# ---------------------------------------------------
+@bp.get("/<int:profile_id>")
+def view_profile(profile_id: int):
+    guard = _require_login()
+    if guard:
+        return guard
+
+    db_path = current_app.config["DB_PATH"]
+    profile = models.get_profile_by_id(db_path, profile_id)
+
+    if not profile:
+        flash("Profile not found.", "error")
+        return redirect(url_for("match.dashboard"))
+
+    return render_template("profile_view.html", target=profile)
+
+
+# ---------------------------------------------------
+# API IMAGE UPLOAD (ANDROID)
 # ---------------------------------------------------
 @bp.route("/api/upload_profile_image", methods=["POST"])
 def api_upload_profile_image():
@@ -130,7 +149,6 @@ def api_upload_profile_image():
     if not request.files:
         return jsonify({"error": "No file received"}), 400
 
-    # Accept ANY file key (App Inventor sends raw file)
     file = next(iter(request.files.values()))
 
     if file.filename == "":
@@ -146,7 +164,6 @@ def api_upload_profile_image():
 
     file.save(upload_path)
 
-    # Update profile in DB
     existing = models.get_profile_by_user_id(db_path, user_id) or {}
     existing["image_filename"] = filename
     models.upsert_profile(db_path, user_id, existing)
