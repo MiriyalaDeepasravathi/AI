@@ -1,6 +1,19 @@
 from __future__ import annotations
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
+import os
+import uuid
+
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+    jsonify,
+)
 
 from database import models
 from services.image_upload import save_profile_image
@@ -9,6 +22,9 @@ from services.image_upload import save_profile_image
 bp = Blueprint("profile", __name__, url_prefix="/profile")
 
 
+# ---------------------------
+# LOGIN GUARD
+# ---------------------------
 def _require_login():
     if not session.get("user_id"):
         flash("Please login to continue.", "error")
@@ -16,6 +32,9 @@ def _require_login():
     return None
 
 
+# ---------------------------
+# EDIT PROFILE (HTML FORM)
+# ---------------------------
 @bp.get("/edit")
 def edit_profile():
     guard = _require_login()
@@ -42,7 +61,6 @@ def save_profile():
         except Exception:
             return default
 
-    # Basic validation
     full_name = (request.form.get("full_name") or "").strip()
     age = get_int("age")
     gender = (request.form.get("gender") or "").strip()
@@ -58,8 +76,8 @@ def save_profile():
         return redirect(url_for("profile.edit_profile"))
 
     existing = models.get_profile_by_user_id(db_path, user_id) or {}
-
     image_filename = existing.get("image_filename")
+
     try:
         uploaded = save_profile_image(
             request.files.get("profile_image"),
@@ -93,102 +111,47 @@ def save_profile():
         "image_filename": image_filename,
     }
 
-    if profile_data["pref_age_min"] > profile_data["pref_age_max"]:
-        flash("Preferred age min cannot exceed max.", "error")
-        return redirect(url_for("profile.edit_profile"))
-
-    required_fields = [
-        "marital_status",
-        "location",
-        "highest_education",
-        "occupation",
-        "income_range",
-        "smoking",
-        "drinking",
-        "medical_conditions",
-        "fitness_level",
-        "pref_location",
-        "pref_education_level",
-    ]
-    for f in required_fields:
-        if not profile_data[f]:
-            flash("Please fill all required fields.", "error")
-            return redirect(url_for("profile.edit_profile"))
-
     models.upsert_profile(db_path, user_id, profile_data)
     flash("Profile saved.", "success")
     return redirect(url_for("match.dashboard"))
 
 
-@bp.get("/<int:profile_id>")
-def view_profile(profile_id: int):
-    """Profile view route.
+# ---------------------------------------------------
+# ✅ NEW API ROUTE FOR ANDROID APP IMAGE UPLOAD
+# ---------------------------------------------------
+@bp.route("/api/upload_profile_image", methods=["POST"])
+def api_upload_profile_image():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
 
-    This page should only show full details if a match score >= 90
-    between current user and the profile owner.
-
-    The actual gating is implemented in `routes/match.py` where we compute score.
-    Here we keep it simple and let the template decide based on `can_view`.
-    """
-    guard = _require_login()
-    if guard:
-        return guard
-
+    user_id = int(session["user_id"])
     db_path = current_app.config["DB_PATH"]
-    current = models.get_profile_by_user_id(db_path, int(session["user_id"]))
-    target = models.get_profile_by_id(db_path, profile_id)
 
-    if not current or not target:
-        flash("Profile not found (or your profile is incomplete).", "error")
-        return redirect(url_for("match.dashboard"))
+    if not request.files:
+        return jsonify({"error": "No file received"}), 400
 
-    # Match score is computed in dashboard; recompute here to avoid trusting client.
-    from services.scoring import calculate_match_score
+    # Accept ANY file key (App Inventor sends raw file)
+    file = next(iter(request.files.values()))
 
-    score, breakdown = calculate_match_score(current, target)
-    can_view = score >= 90
+    if file.filename == "":
+        return jsonify({"error": "Empty filename"}), 400
 
-    # Interest state (fresh DB read). Messaging requires accepted.
-    me_id = int(session["user_id"])
-    target_user_id = int(target["user_id"])
-    interest_row = models.get_interest_between_users(db_path, me_id, target_user_id)
-    interest_status = interest_row["status"] if interest_row else None
-    interest_id = interest_row["id"] if interest_row else None
-    interest_direction = None
-    if interest_row:
-        interest_direction = "outgoing" if int(interest_row["from_user_id"]) == me_id else "incoming"
-    messaging_unlocked = bool(score >= 90 and interest_status == "accepted")
+    ext = file.filename.rsplit(".", 1)[-1].lower()
 
-    # STRICT 90% RULE (server-side):
-    # If score is below threshold, do not expose full profile details.
-    if not can_view:
-        limited = {
-            "id": target.get("id"),
-            "user_id": target.get("user_id"),
-            "full_name": target.get("full_name"),
-            "location": target.get("location"),
-            "image_filename": None,
-        }
-        return render_template(
-            "profile_view.html",
-            target=limited,
-            score=score,
-            breakdown=breakdown,
-            can_view=False,
-            interest_status=interest_status,
-            interest_direction=interest_direction,
-            interest_id=interest_id,
-            messaging_unlocked=messaging_unlocked,
-        )
+    if ext not in current_app.config["ALLOWED_IMAGE_EXTENSIONS"]:
+        return jsonify({"error": "Invalid file type"}), 400
 
-    return render_template(
-        "profile_view.html",
-        target=target,
-        score=score,
-        breakdown=breakdown,
-        can_view=True,
-        interest_status=interest_status,
-        interest_direction=interest_direction,
-        interest_id=interest_id,
-        messaging_unlocked=messaging_unlocked,
-    )
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    upload_path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+
+    file.save(upload_path)
+
+    # Update profile in DB
+    existing = models.get_profile_by_user_id(db_path, user_id) or {}
+    existing["image_filename"] = filename
+    models.upsert_profile(db_path, user_id, existing)
+
+    return jsonify({
+        "success": True,
+        "image_url": f"/static/uploads/{filename}"
+    })
