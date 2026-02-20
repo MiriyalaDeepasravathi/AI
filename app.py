@@ -5,7 +5,6 @@ import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.exceptions import RequestEntityTooLarge
-from werkzeug.utils import secure_filename
 
 from config import Config
 from database import models
@@ -19,7 +18,11 @@ def create_app() -> Flask:
     # Enable CORS
     CORS(app, supports_credentials=True)
 
-    # Ensure upload folder exists
+    # Ensure upload folder exists (Railway-safe): normalize to absolute path.
+    upload_folder = app.config.get("UPLOAD_FOLDER") or "static/uploads"
+    if not os.path.isabs(upload_folder):
+        upload_folder = os.path.join(app.root_path, upload_folder)
+    app.config["UPLOAD_FOLDER"] = upload_folder
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     # Init DB tables
@@ -41,28 +44,27 @@ def create_app() -> Flask:
     # ==============================
     @app.route("/api/upload_profile_image", methods=["POST"])
     def api_upload_profile_image():
-        if "file" not in request.files:
+        from services.image_upload import save_profile_image
+
+        file = request.files.get("profile_image") or request.files.get("file")
+        if not file:
             return jsonify({"status": "error", "message": "No file uploaded"}), 400
-
-        file = request.files["file"]
-
         if file.filename == "":
-            return jsonify({"status": "error", "message": "No selected file"}), 400
+            return jsonify({"status": "error", "message": "Empty filename"}), 400
 
-        filename = secure_filename(file.filename)
+        try:
+            filename = save_profile_image(
+                file,
+                upload_folder=app.config["UPLOAD_FOLDER"],
+                allowed_exts=app.config["ALLOWED_IMAGE_EXTENSIONS"],
+            )
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+        except Exception:
+            app.logger.exception("API image upload failed")
+            return jsonify({"status": "error", "message": "Upload failed"}), 500
 
-        upload_folder = app.config["UPLOAD_FOLDER"]
-        os.makedirs(upload_folder, exist_ok=True)
-
-        filepath = os.path.join(upload_folder, filename)
-        file.save(filepath)
-
-        image_url = f"/static/uploads/{filename}"
-
-        return jsonify({
-            "status": "success",
-            "image_url": image_url
-        }), 200
+        return jsonify({"status": "success", "image_url": f"/static/uploads/{filename}"}), 200
 
     # ==============================
 

@@ -18,6 +18,7 @@ def allowed_file(filename: str, allowed_exts: Iterable[str]) -> bool:
 _MIMETYPE_TO_EXT = {
     "image/jpeg": "jpg",
     "image/png": "png",
+    "image/gif": "gif",
     "image/webp": "webp",
     "image/heic": "heic",
     "image/heif": "heif",
@@ -33,7 +34,8 @@ def _guess_ext(file: FileStorage) -> Optional[str]:
 
 def _require_image(file: FileStorage) -> None:
     mt = (file.mimetype or "").lower()
-    if not mt.startswith("image/"):
+    # Some clients may not send a reliable mimetype; don't block uploads solely on that.
+    if mt and not mt.startswith("image/"):
         raise ValueError("Invalid file. Please upload an image.")
 
 
@@ -67,7 +69,7 @@ def save_profile_image(
 
     - Uses Werkzeug's `secure_filename`
     - Adds a random token to avoid collisions
-    - Restricts extensions to JPEG/PNG
+    - Restricts extensions to configured allowed types
 
     Note: This demo does not do deep content inspection.
     For production, consider validating MIME type and decoding via Pillow.
@@ -79,21 +81,18 @@ def save_profile_image(
 
     ext = _guess_ext(file)
     if not ext or ext.lower() not in {e.lower() for e in allowed_exts}:
-        raise ValueError("Invalid image type. Please upload JPG/JPEG/PNG/WebP (HEIC supported if server can convert).")
+        raise ValueError("Invalid image type. Please upload PNG/JPG/JPEG/GIF.")
 
     token = secrets.token_hex(8)
-    # Convert HEIC/HEIF to JPEG for widest browser support.
-    stored_ext = "jpg" if ext in {"heic", "heif"} else ext
+    # Store with the validated extension.
+    stored_ext = ext
     stored_name = f"profile_{token}.{stored_ext}"
 
     folder = Path(upload_folder)
     folder.mkdir(parents=True, exist_ok=True)
     dest = folder / stored_name
 
-    if ext in {"heic", "heif"}:
-        _convert_heic_to_jpeg(file, dest)
-    else:
-        file.save(dest)
+    file.save(dest)
 
     return stored_name
 

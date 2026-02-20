@@ -21,10 +21,12 @@ class Config:
     # Match scores are computed dynamically and are not stored.
     DB_PATH = os.environ.get("DB_PATH", str(BASE_DIR / "database" / "matrimony.db"))
 
-    UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", str(BASE_DIR / "static" / "uploads"))
+    # NOTE: Keep this as a simple relative default so it works in different deploy layouts.
+    # `create_app()` normalizes it to an absolute path under `app.root_path`.
+    UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "static/uploads")
     # Mobile photos (especially iOS) can exceed 5MB easily.
     # Keep a reasonable default and allow override via env.
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 15 * 1024 * 1024))  # 15MB
 
-    # Images: include webp; include heic/heif to support iOS uploads (converted server-side if Pillow is installed).
-    ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "heif"}
+    # Images allowed for profile uploads.
+    ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}

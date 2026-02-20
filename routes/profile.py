@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import os
-import uuid
-
 from flask import (
     Blueprint,
     current_app,
@@ -78,9 +75,13 @@ def save_profile():
     existing = models.get_profile_by_user_id(db_path, user_id) or {}
     image_filename = existing.get("image_filename")
 
+    file = request.files.get("profile_image") if request.files else None
+    if file is not None and file.filename == "":
+        file = None
+
     try:
         uploaded = save_profile_image(
-            request.files.get("profile_image"),
+            file,
             upload_folder=current_app.config["UPLOAD_FOLDER"],
             allowed_exts=current_app.config["ALLOWED_IMAGE_EXTENSIONS"],
         )
@@ -88,6 +89,10 @@ def save_profile():
             image_filename = uploaded
     except ValueError as e:
         flash(str(e), "error")
+        return redirect(url_for("profile.edit_profile"))
+    except Exception:
+        current_app.logger.exception("Profile image upload failed")
+        flash("Image upload failed. Please try again.", "error")
         return redirect(url_for("profile.edit_profile"))
 
     profile_data = {
@@ -150,25 +155,24 @@ def api_upload_profile_image():
         return jsonify({"error": "No file received"}), 400
 
     file = next(iter(request.files.values()))
-
-    if file.filename == "":
+    if not file or file.filename == "":
         return jsonify({"error": "Empty filename"}), 400
 
-    ext = file.filename.rsplit(".", 1)[-1].lower()
+    try:
+        filename = save_profile_image(
+            file,
+            upload_folder=current_app.config["UPLOAD_FOLDER"],
+            allowed_exts=current_app.config["ALLOWED_IMAGE_EXTENSIONS"],
+        )
+        if not filename:
+            return jsonify({"error": "No file received"}), 400
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        current_app.logger.exception("API profile image upload failed")
+        return jsonify({"error": "Upload failed"}), 500
 
-    if ext not in current_app.config["ALLOWED_IMAGE_EXTENSIONS"]:
-        return jsonify({"error": "Invalid file type"}), 400
+    if not models.update_profile_image(db_path, user_id, filename):
+        return jsonify({"error": "Profile not found. Create profile first."}), 400
 
-    filename = f"{uuid.uuid4().hex}.{ext}"
-    upload_path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
-
-    file.save(upload_path)
-
-    existing = models.get_profile_by_user_id(db_path, user_id) or {}
-    existing["image_filename"] = filename
-    models.upsert_profile(db_path, user_id, existing)
-
-    return jsonify({
-        "success": True,
-        "image_url": f"/static/uploads/{filename}"
-    })
+    return jsonify({"success": True, "image_url": f"/static/uploads/{filename}"})

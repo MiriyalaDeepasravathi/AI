@@ -300,6 +300,23 @@ def upsert_profile(db_path: str, user_id: int, data: Dict[str, Any]) -> None:
         conn.close()
 
 
+def update_profile_image(db_path: str, user_id: int, image_filename: Optional[str]) -> bool:
+    """Update only the profile image filename.
+
+    Returns True if a profile row existed and was updated.
+    """
+    conn = get_connection(db_path)
+    try:
+        cur = conn.execute(
+            "UPDATE profiles SET image_filename = ?, updated_at = datetime('now') WHERE user_id = ?",
+            (image_filename, user_id),
+        )
+        conn.commit()
+        return bool(cur.rowcount)
+    finally:
+        conn.close()
+
+
 def get_profile_by_user_id(db_path: str, user_id: int) -> Optional[Dict[str, Any]]:
     conn = get_connection(db_path)
     try:
