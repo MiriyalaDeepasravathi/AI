@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 
-from flask import Flask
-from flask_cors import CORS   # ✅ ADD THIS
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.utils import secure_filename
 
 from config import Config
 from database import models
@@ -15,17 +16,15 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    # ✅ ENABLE CORS (required for Netlify frontend → Railway backend)
+    # Enable CORS
     CORS(app, supports_credentials=True)
 
     # Ensure upload folder exists
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
-    # Init DB tables safely (CREATE TABLE IF NOT EXISTS).
-    # IMPORTANT: Do not seed/reset the database.
+    # Init DB tables
     models.init_db(app.config["DB_PATH"])
 
-    # Optional lightweight migration hook
     if hasattr(models, "migrate_db"):
         models.migrate_db(app.config["DB_PATH"])
 
@@ -37,9 +36,38 @@ def create_app() -> Flask:
     app.register_blueprint(messages.bp)
     app.register_blueprint(admin.bp)
 
+    # ==============================
+    # 🔥 NEW API FOR MIT APP UPLOAD
+    # ==============================
+    @app.route("/api/upload_profile_image", methods=["POST"])
+    def api_upload_profile_image():
+        if "file" not in request.files:
+            return jsonify({"status": "error", "message": "No file uploaded"}), 400
+
+        file = request.files["file"]
+
+        if file.filename == "":
+            return jsonify({"status": "error", "message": "No selected file"}), 400
+
+        filename = secure_filename(file.filename)
+
+        upload_folder = app.config["UPLOAD_FOLDER"]
+        os.makedirs(upload_folder, exist_ok=True)
+
+        filepath = os.path.join(upload_folder, filename)
+        file.save(filepath)
+
+        image_url = f"/static/uploads/{filename}"
+
+        return jsonify({
+            "status": "success",
+            "image_url": image_url
+        }), 200
+
+    # ==============================
+
     @app.context_processor
     def inject_is_admin():
-        """Expose `is_admin` to templates."""
         try:
             from flask import session
 
@@ -59,7 +87,6 @@ def create_app() -> Flask:
         except Exception:
             return {"is_admin": False}
 
-    # Basic security headers
     @app.after_request
     def add_headers(resp):
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -74,7 +101,6 @@ def create_app() -> Flask:
         flash(f"Upload too large. Please choose a smaller image (max {max_mb}MB).", "error")
         return redirect(request.referrer or url_for("profile.edit_profile"))
 
-    # ✅ HEALTH CHECK ENDPOINT (VERY IMPORTANT)
     @app.route("/health")
     def health():
         return {"status": "ok"}, 200
@@ -82,12 +108,8 @@ def create_app() -> Flask:
     return app
 
 
-# ✅ CREATE APP INSTANCE FOR GUNICORN
 app = create_app()
 
-
-# ✅ RAILWAY ENTRYPOINT
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-#test
