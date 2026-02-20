@@ -451,6 +451,16 @@ select optgroup {
   }
   .actions > * { width: 100%; }
 
+  /* Dashboard cards: ensure action buttons stack and are easy to tap */
+  .actions .row {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .actions .row > * { width: 100%; }
+  .actions a.btn { width: 100%; }
+  .actions form { width: 100%; }
+
   .btn {
     min-height: 44px;
     padding: 12px 14px;
